@@ -1,0 +1,7 @@
+{
+  "name": "Scrib",
+  "description": "Voice-to-text audio transcription supporting MP3, WAV, FLAC with 1-hour chunking, AI precision enhancement, bilingual French/English translation, audio playback sync, and PDF/TXT export.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
