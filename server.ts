@@ -389,14 +389,18 @@ ${fullText}
       };
       const targetLangName = langMap[targetLanguage] || targetLanguage;
 
-      const prompt = `Translate the following executive summary, key highlights, and action items faithfully into ${targetLangName}.
-Preserve tone, bullet points, formatting and exact meaning.
+      const prompt = `Translate the following executive summary, key highlights, and action items faithfully and completely into ${targetLangName}.
+CRITICAL INSTRUCTIONS:
+1. Translate "summary" into "translatedSummary".
+2. Translate EVERY bullet item in "highlights" into "translatedHighlights" in ${targetLangName}. If "highlights" contains items, "translatedHighlights" MUST NOT be empty.
+3. Translate EVERY action item in "actionItems" into "translatedActionItems" in ${targetLangName}. If "actionItems" contains items, "translatedActionItems" MUST NOT be empty.
+4. Preserve tone, nuances, formatting, and exact meaning.
 
 Data to translate:
 ${JSON.stringify({
   summary,
-  highlights,
-  actionItems,
+  highlights: highlights && highlights.length > 0 ? highlights : [],
+  actionItems: actionItems && actionItems.length > 0 ? actionItems : [],
 })}
 
 Output JSON schema:

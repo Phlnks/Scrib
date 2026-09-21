@@ -350,6 +350,8 @@ export default function App() {
         // Clear old translation when regenerating new summary format
         translatedSummary: undefined,
         translatedSummaryLanguage: undefined,
+        translatedHighlights: undefined,
+        translatedActionItems: undefined,
         highlights: data.analysis?.highlights,
         actionItems: data.analysis?.actionItems,
         topics: data.analysis?.topics,
@@ -392,6 +394,8 @@ export default function App() {
         ...current,
         translatedSummary: data.translatedSummary,
         translatedSummaryLanguage: data.targetLanguage,
+        translatedHighlights: data.translatedHighlights && data.translatedHighlights.length > 0 ? data.translatedHighlights : undefined,
+        translatedActionItems: data.translatedActionItems && data.translatedActionItems.length > 0 ? data.translatedActionItems : undefined,
       };
 
       await saveAudioFileItem(updatedItem);

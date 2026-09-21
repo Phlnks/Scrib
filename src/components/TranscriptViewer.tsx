@@ -127,19 +127,29 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
         : item.summary;
     if (!summaryText) return;
 
+    const isTranslated = activeSummaryView === "translated";
+    const highlightsToUse =
+      isTranslated && item.translatedHighlights && item.translatedHighlights.length > 0
+        ? item.translatedHighlights
+        : item.highlights;
+    const actionItemsToUse =
+      isTranslated && item.translatedActionItems && item.translatedActionItems.length > 0
+        ? item.translatedActionItems
+        : item.actionItems;
+
     const sections: string[] = [summaryText];
 
-    if (item.highlights && item.highlights.length > 0) {
+    if (highlightsToUse && highlightsToUse.length > 0) {
       sections.push(
         "\n\nPoints essentiels :\n" +
-          item.highlights.map((h) => `• ${h}`).join("\n")
+          highlightsToUse.map((h) => `• ${h}`).join("\n")
       );
     }
 
-    if (item.actionItems && item.actionItems.length > 0) {
+    if (actionItemsToUse && actionItemsToUse.length > 0) {
       sections.push(
         "\n\nActions à retenir :\n" +
-          item.actionItems.map((a) => `• ${a}`).join("\n")
+          actionItemsToUse.map((a) => `• ${a}`).join("\n")
       );
     }
 
@@ -229,13 +239,23 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   // Start editing the synthesis
   const handleStartEditSummary = () => {
+    const isTranslated = activeSummaryView === "translated";
     const currentSummary =
-      activeSummaryView === "translated" && item.translatedSummary
+      isTranslated && item.translatedSummary
         ? item.translatedSummary
         : item.summary || "";
+    const currentHighlights =
+      isTranslated && item.translatedHighlights && item.translatedHighlights.length > 0
+        ? item.translatedHighlights
+        : item.highlights || [];
+    const currentActionItems =
+      isTranslated && item.translatedActionItems && item.translatedActionItems.length > 0
+        ? item.translatedActionItems
+        : item.actionItems || [];
+
     setEditSummaryText(currentSummary);
-    setEditHighlights(item.highlights ? [...item.highlights] : []);
-    setEditActionItems(item.actionItems ? [...item.actionItems] : []);
+    setEditHighlights([...currentHighlights]);
+    setEditActionItems([...currentActionItems]);
     setEditTopics(item.topics ? [...item.topics] : []);
     setIsEditingSummary(true);
   };
@@ -245,8 +265,8 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     if (activeSummaryView === "translated") {
       await onUpdateItem?.({
         translatedSummary: editSummaryText,
-        highlights: editHighlights,
-        actionItems: editActionItems,
+        translatedHighlights: editHighlights,
+        translatedActionItems: editActionItems,
         topics: editTopics,
       });
     } else {
@@ -770,40 +790,70 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     </div>
 
                     {/* Highlights */}
-                    {item.highlights && item.highlights.length > 0 && (
-                      <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2.5">
-                        <span className="font-bold text-xs uppercase tracking-wider text-indigo-900 dark:text-indigo-300 block">
-                          Points essentiels :
-                        </span>
-                        <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-                          {item.highlights.map((h, i) => (
-                            <li key={i} className="leading-relaxed">
-                              {h}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {(() => {
+                      const displayedHighlights =
+                        activeSummaryView === "translated" &&
+                        item.translatedHighlights &&
+                        item.translatedHighlights.length > 0
+                          ? item.translatedHighlights
+                          : item.highlights;
+
+                      if (!displayedHighlights || displayedHighlights.length === 0) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2.5">
+                          <span className="font-bold text-xs uppercase tracking-wider text-indigo-900 dark:text-indigo-300 block">
+                            {activeSummaryView === "translated"
+                              ? "Points essentiels (traduits) :"
+                              : "Points essentiels :"}
+                          </span>
+                          <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+                            {displayedHighlights.map((h, i) => (
+                              <li key={i} className="leading-relaxed">
+                                {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
 
                     {/* Action items */}
-                    {item.actionItems && item.actionItems.length > 0 && (
-                      <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2.5">
-                        <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 dark:text-emerald-300 block">
-                          Actions à retenir :
-                        </span>
-                        <div className="space-y-1.5">
-                          {item.actionItems.map((a, i) => (
-                            <div
-                              key={i}
-                              className="flex items-start space-x-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300"
-                            >
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                              <span className="leading-relaxed">{a}</span>
-                            </div>
-                          ))}
+                    {(() => {
+                      const displayedActionItems =
+                        activeSummaryView === "translated" &&
+                        item.translatedActionItems &&
+                        item.translatedActionItems.length > 0
+                          ? item.translatedActionItems
+                          : item.actionItems;
+
+                      if (!displayedActionItems || displayedActionItems.length === 0) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2.5">
+                          <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 dark:text-emerald-300 block">
+                            {activeSummaryView === "translated"
+                              ? "Actions à retenir (traduites) :"
+                              : "Actions à retenir :"}
+                          </span>
+                          <div className="space-y-1.5">
+                            {displayedActionItems.map((a, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start space-x-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                                <span className="leading-relaxed">{a}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Topics */}
                     {item.topics && item.topics.length > 0 && (

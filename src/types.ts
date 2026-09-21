@@ -33,6 +33,8 @@ export interface AudioFileItem {
   summaryLanguage?: string;
   translatedSummary?: string;
   translatedSummaryLanguage?: string;
+  translatedHighlights?: string[];
+  translatedActionItems?: string[];
   highlights?: string[];
   actionItems?: string[];
   topics?: string[];

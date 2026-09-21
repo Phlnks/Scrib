@@ -44,6 +44,18 @@ export function generatePlainText(
       content += `TRANSLATED SUMMARY (${(item.translatedSummaryLanguage || "en").toUpperCase()}):\n`;
       content += `-----------------\n`;
       content += `${item.translatedSummary}\n\n`;
+
+      if (item.translatedHighlights && item.translatedHighlights.length > 0) {
+        content += `TRANSLATED KEY HIGHLIGHTS (${(item.translatedSummaryLanguage || "en").toUpperCase()}):\n`;
+        item.translatedHighlights.forEach((h) => (content += `• ${h}\n`));
+        content += `\n`;
+      }
+
+      if (item.translatedActionItems && item.translatedActionItems.length > 0) {
+        content += `TRANSLATED ACTION ITEMS (${(item.translatedSummaryLanguage || "en").toUpperCase()}):\n`;
+        item.translatedActionItems.forEach((a) => (content += `[ ] ${a}\n`));
+        content += `\n`;
+      }
     }
 
     if (item.highlights && item.highlights.length > 0) {
@@ -230,6 +242,50 @@ export function downloadPdf(item: AudioFileItem, options: ExportOptions): void {
         y += 5;
       });
       y += 4;
+
+      if (item.translatedHighlights && item.translatedHighlights.length > 0) {
+        checkPageBreak(15);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(16, 116, 80);
+        doc.text(`Key Highlights (${(item.translatedSummaryLanguage || "en").toUpperCase()}):`, margin, y);
+        y += 5;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(51, 65, 85);
+        item.translatedHighlights.forEach((h) => {
+          const bulletLines = doc.splitTextToSize(`• ${h}`, contentWidth - 4);
+          bulletLines.forEach((line: string) => {
+            checkPageBreak(5);
+            doc.text(line, margin + 4, y);
+            y += 4.5;
+          });
+        });
+        y += 4;
+      }
+
+      if (item.translatedActionItems && item.translatedActionItems.length > 0) {
+        checkPageBreak(15);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(16, 116, 80);
+        doc.text(`Action Items (${(item.translatedSummaryLanguage || "en").toUpperCase()}):`, margin, y);
+        y += 5;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(51, 65, 85);
+        item.translatedActionItems.forEach((a) => {
+          const bulletLines = doc.splitTextToSize(`[ ] ${a}`, contentWidth - 4);
+          bulletLines.forEach((line: string) => {
+            checkPageBreak(5);
+            doc.text(line, margin + 4, y);
+            y += 4.5;
+          });
+        });
+        y += 4;
+      }
     }
 
     if (item.highlights && item.highlights.length > 0) {
@@ -245,6 +301,28 @@ export function downloadPdf(item: AudioFileItem, options: ExportOptions): void {
       doc.setTextColor(51, 65, 85);
       item.highlights.forEach((h) => {
         const bulletLines = doc.splitTextToSize(`• ${h}`, contentWidth - 4);
+        bulletLines.forEach((line: string) => {
+          checkPageBreak(5);
+          doc.text(line, margin + 4, y);
+          y += 4.5;
+        });
+      });
+      y += 4;
+    }
+
+    if (item.actionItems && item.actionItems.length > 0) {
+      checkPageBreak(15);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105);
+      doc.text("Action Items:", margin, y);
+      y += 5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      item.actionItems.forEach((a) => {
+        const bulletLines = doc.splitTextToSize(`[ ] ${a}`, contentWidth - 4);
         bulletLines.forEach((line: string) => {
           checkPageBreak(5);
           doc.text(line, margin + 4, y);

@@ -202,7 +202,7 @@ export const SummaryControlBar: React.FC<SummaryControlProps> = ({
             }}
             disabled={!hasSummary || isTranslating || isGenerating}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition-all disabled:opacity-50"
-            title="Traduire instantanément le résumé généré"
+            title="Traduire instantanément la synthèse (résumé, points essentiels et actions)"
           >
             {isTranslating ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
@@ -214,7 +214,7 @@ export const SummaryControlBar: React.FC<SummaryControlProps> = ({
                 ? "Traduction..."
                 : translatedLanguage
                 ? "Changer langue"
-                : "Traduire le résumé"}
+                : "Traduire la synthèse"}
             </span>
             <span className="text-emerald-500 text-[10px]">▼</span>
           </button>

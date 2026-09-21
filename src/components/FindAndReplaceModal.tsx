@@ -96,6 +96,18 @@ export const FindAndReplaceModal: React.FC<FindAndReplaceModalProps> = ({
         if (m) summaryCount += m.length;
       }
     }
+    if (item.translatedHighlights) {
+      for (const h of item.translatedHighlights) {
+        const m = h.match(searchRegex);
+        if (m) summaryCount += m.length;
+      }
+    }
+    if (item.translatedActionItems) {
+      for (const a of item.translatedActionItems) {
+        const m = a.match(searchRegex);
+        if (m) summaryCount += m.length;
+      }
+    }
 
     const total =
       (scopeTranscript ? transcriptCount : 0) +
@@ -123,6 +135,12 @@ export const FindAndReplaceModal: React.FC<FindAndReplaceModalProps> = ({
       let updatedHighlights = item.highlights ? [...item.highlights] : undefined;
       let updatedActionItems = item.actionItems
         ? [...item.actionItems]
+        : undefined;
+      let updatedTranslatedHighlights = item.translatedHighlights
+        ? [...item.translatedHighlights]
+        : undefined;
+      let updatedTranslatedActionItems = item.translatedActionItems
+        ? [...item.translatedActionItems]
         : undefined;
 
       // Replace in segments
@@ -168,6 +186,16 @@ export const FindAndReplaceModal: React.FC<FindAndReplaceModalProps> = ({
             a.replace(searchRegex, replaceTerm)
           );
         }
+        if (updatedTranslatedHighlights) {
+          updatedTranslatedHighlights = updatedTranslatedHighlights.map((h) =>
+            h.replace(searchRegex, replaceTerm)
+          );
+        }
+        if (updatedTranslatedActionItems) {
+          updatedTranslatedActionItems = updatedTranslatedActionItems.map((a) =>
+            a.replace(searchRegex, replaceTerm)
+          );
+        }
       }
 
       const updatedFullText = updatedSegments.map((s) => s.text).join(" ");
@@ -179,6 +207,8 @@ export const FindAndReplaceModal: React.FC<FindAndReplaceModalProps> = ({
         translatedSummary: updatedTranslatedSummary,
         highlights: updatedHighlights,
         actionItems: updatedActionItems,
+        translatedHighlights: updatedTranslatedHighlights,
+        translatedActionItems: updatedTranslatedActionItems,
       });
 
       setSuccessMessage(
