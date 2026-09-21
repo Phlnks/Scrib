@@ -254,12 +254,16 @@ export const FileListSidebar: React.FC<FileListSidebarProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(`Supprimer la transcription de "${file.name}" ?`)) {
+                        if (
+                          confirm(
+                            `Supprimer définitivement "${file.name}" ?\n\nCette action effacera la transcription et supprimera physiquement le fichier audio du stockage disque pour libérer l'espace.`
+                          )
+                        ) {
                           onDeleteFile(file.id);
                         }
                       }}
                       className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-200 dark:hover:bg-slate-800"
-                      title="Supprimer"
+                      title="Supprimer définitivement l'audio et la transcription"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

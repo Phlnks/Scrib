@@ -101,11 +101,22 @@ async function generateContentWithRetry(
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || "0.0.0.0";
+  const bodyLimit = process.env.BODY_LIMIT || "75mb";
 
-  // Body parser with 75MB limit for large audio chunks / files
-  app.use(express.json({ limit: "75mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "75mb" }));
+  // Trust reverse proxy headers (Nginx, Traefik, Caddy, Cloudflare) when behind a domain
+  if (
+    process.env.TRUST_PROXY === "true" ||
+    process.env.TRUST_PROXY === "1" ||
+    process.env.NODE_ENV === "production"
+  ) {
+    app.set("trust proxy", 1);
+  }
+
+  // Body parser with configurable limit for large audio chunks / files
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
   // Health check
   app.get("/api/health", (_req: Request, res: Response) => {
@@ -523,8 +534,8 @@ Return a JSON array of objects: [{ "id": number, "translation": string }]`;
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Audio Transcribe server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Scrib server running on http://${HOST}:${PORT}`);
   });
 }
 

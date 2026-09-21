@@ -430,9 +430,63 @@ export default function App() {
     await saveAudioFileItem(updatedItem);
   };
 
-  // Delete an audio file and transcript
+  // Update item properties (summary, highlights, action items, segments, etc.)
+  const handleUpdateItem = async (updatedFields: Partial<AudioFileItem>) => {
+    const current = files.find((f) => f.id === selectedFileId);
+    if (!current) return;
+
+    const updatedItem: AudioFileItem = {
+      ...current,
+      ...updatedFields,
+    };
+
+    if (updatedFields.segments) {
+      updatedItem.fullText = updatedFields.segments.map((s) => s.text).join(" ");
+    }
+
+    setFiles((prev) =>
+      prev.map((f) => (f.id === current.id ? updatedItem : f))
+    );
+    await saveAudioFileItem(updatedItem);
+  };
+
+  // Rename speaker across all segments in one click
+  const handleRenameSpeakerEverywhere = async (
+    oldSpeakerName: string,
+    newSpeakerName: string
+  ) => {
+    const current = files.find((f) => f.id === selectedFileId);
+    if (!current) return;
+    const trimmed = newSpeakerName.trim();
+    if (!trimmed || trimmed === oldSpeakerName) return;
+
+    const newSegments = current.segments.map((s) =>
+      s.speaker === oldSpeakerName ? { ...s, speaker: trimmed } : s
+    );
+
+    const updatedItem: AudioFileItem = {
+      ...current,
+      segments: newSegments,
+    };
+
+    setFiles((prev) =>
+      prev.map((f) => (f.id === current.id ? updatedItem : f))
+    );
+    await saveAudioFileItem(updatedItem);
+  };
+
+  // Delete an audio file and transcript permanently
   const handleDeleteFile = async (id: string) => {
+    // If the active file is being deleted, immediately clear the blob in memory and playback state
+    if (selectedFileId === id) {
+      setActiveAudioBlob(null);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+
+    // Permanently purge both metadata and the binary audio blob from IndexedDB storage
     await deleteAudioFileItem(id);
+
     const newFiles = files.filter((f) => f.id !== id);
     setFiles(newFiles);
     if (selectedFileId === id) {
@@ -522,6 +576,8 @@ export default function App() {
                 currentTime={currentTime}
                 onSeek={(time) => setSeekToTime(time)}
                 onUpdateSegment={handleUpdateSegment}
+                onUpdateItem={handleUpdateItem}
+                onRenameSpeakerEverywhere={handleRenameSpeakerEverywhere}
                 onOpenExport={() => {
                   setExportItem(selectedItem);
                   setIsExportOpen(true);

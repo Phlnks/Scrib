@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   FileText,
   Clock,
@@ -9,24 +9,38 @@ import {
   Check,
   Edit2,
   Copy,
-  ChevronDown,
-  ChevronUp,
-  SplitSquareVertical,
-  Volume2,
-  ListFilter,
   CheckCircle2,
   AlignLeft,
-  Globe,
+  Replace,
+  Plus,
+  Trash2,
+  X,
+  Undo2,
 } from "lucide-react";
-import { AudioFileItem, SummaryFormat, TranscriptSegment, UserSettings } from "../types";
+import {
+  AudioFileItem,
+  SummaryFormat,
+  TranscriptSegment,
+  UserSettings,
+} from "../types";
 import { formatTime } from "../utils/audioProcessor";
 import { SummaryControlBar } from "./SummaryControlBar";
+import { FindAndReplaceModal } from "./FindAndReplaceModal";
+import { QuickRenameSpeakerModal } from "./QuickRenameSpeakerModal";
 
 interface TranscriptViewerProps {
   item: AudioFileItem;
   currentTime: number;
   onSeek: (time: number) => void;
-  onUpdateSegment: (segmentId: string, updated: Partial<TranscriptSegment>) => void;
+  onUpdateSegment: (
+    segmentId: string,
+    updated: Partial<TranscriptSegment>
+  ) => void;
+  onUpdateItem?: (updated: Partial<AudioFileItem>) => Promise<void>;
+  onRenameSpeakerEverywhere?: (
+    oldName: string,
+    newName: string
+  ) => Promise<void>;
   onOpenExport: () => void;
   onEnhanceWithAI: (format?: SummaryFormat) => Promise<void>;
   onTranslateSummary?: (targetLang: string) => Promise<void>;
@@ -43,6 +57,8 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   currentTime,
   onSeek,
   onUpdateSegment,
+  onUpdateItem,
+  onRenameSpeakerEverywhere,
   onOpenExport,
   onEnhanceWithAI,
   onTranslateSummary,
@@ -53,17 +69,45 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   activeTab,
   onTabChange,
 }) => {
-  const [internalTab, setInternalTab] = useState<"transcript" | "summary">("transcript");
+  const [internalTab, setInternalTab] = useState<"transcript" | "summary">(
+    "transcript"
+  );
   const currentTab = activeTab ?? internalTab;
   const handleTabChange = (tab: "transcript" | "summary") => {
     setInternalTab(tab);
     onTabChange?.(tab);
   };
 
-  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
-  const [activeSummaryView, setActiveSummaryView] = useState<"original" | "translated">(
-    item.translatedSummary ? "translated" : "original"
+  // Modals state
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [quickRenameSpeaker, setQuickRenameSpeaker] = useState<string | null>(
+    null
   );
+
+  // Segment editing state
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [editSegmentSpeaker, setEditSegmentSpeaker] = useState("");
+  const [initialSegmentSpeaker, setInitialSegmentSpeaker] = useState("");
+  const [editSegmentText, setEditSegmentText] = useState("");
+  const [editSegmentTranslation, setEditSegmentTranslation] = useState("");
+  const [applySpeakerToAll, setApplySpeakerToAll] = useState(false);
+
+  // Summary / Synthesis editing state
+  const [activeSummaryView, setActiveSummaryView] = useState<
+    "original" | "translated"
+  >(item.translatedSummary ? "translated" : "original");
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [editSummaryText, setEditSummaryText] = useState("");
+  const [editHighlights, setEditHighlights] = useState<string[]>([]);
+  const [editActionItems, setEditActionItems] = useState<string[]>([]);
+  const [editTopics, setEditTopics] = useState<string[]>([]);
+  const [newHighlightInput, setNewHighlightInput] = useState("");
+  const [newActionInput, setNewActionInput] = useState("");
+  const [newTopicInput, setNewTopicInput] = useState("");
+  const [summarySavedNotification, setSummarySavedNotification] = useState(
+    false
+  );
+
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const activeSegmentRef = useRef<HTMLDivElement | null>(null);
@@ -125,7 +169,6 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     }
   }, [activeSegment?.id, settings.autoScroll]);
 
-  // All segments are directly rendered (native browser Ctrl+F search handles in-page searching)
   const segments = item.segments;
 
   const handleCopyText = (text: string, id: string) => {
@@ -147,6 +190,83 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
         return "text-sm leading-relaxed";
     }
   };
+
+  // Start editing a specific segment
+  const handleStartEditSegment = (segment: TranscriptSegment) => {
+    setEditingSegmentId(segment.id);
+    setEditSegmentSpeaker(segment.speaker || "Intervenant");
+    setInitialSegmentSpeaker(segment.speaker || "Intervenant");
+    setEditSegmentText(segment.text || "");
+    setEditSegmentTranslation(segment.translation || "");
+    setApplySpeakerToAll(false);
+  };
+
+  // Save the edited segment
+  const handleSaveSegment = async (segmentId: string) => {
+    const trimmedSpeaker = editSegmentSpeaker.trim() || "Intervenant";
+    onUpdateSegment(segmentId, {
+      speaker: trimmedSpeaker,
+      text: editSegmentText,
+      translation: editSegmentTranslation.trim()
+        ? editSegmentTranslation
+        : undefined,
+    });
+
+    // If user checked "apply speaker to all" and changed the name
+    if (
+      applySpeakerToAll &&
+      initialSegmentSpeaker.trim() &&
+      trimmedSpeaker !== initialSegmentSpeaker.trim()
+    ) {
+      await onRenameSpeakerEverywhere?.(
+        initialSegmentSpeaker.trim(),
+        trimmedSpeaker
+      );
+    }
+
+    setEditingSegmentId(null);
+  };
+
+  // Start editing the synthesis
+  const handleStartEditSummary = () => {
+    const currentSummary =
+      activeSummaryView === "translated" && item.translatedSummary
+        ? item.translatedSummary
+        : item.summary || "";
+    setEditSummaryText(currentSummary);
+    setEditHighlights(item.highlights ? [...item.highlights] : []);
+    setEditActionItems(item.actionItems ? [...item.actionItems] : []);
+    setEditTopics(item.topics ? [...item.topics] : []);
+    setIsEditingSummary(true);
+  };
+
+  // Save the edited synthesis
+  const handleSaveSummary = async () => {
+    if (activeSummaryView === "translated") {
+      await onUpdateItem?.({
+        translatedSummary: editSummaryText,
+        highlights: editHighlights,
+        actionItems: editActionItems,
+        topics: editTopics,
+      });
+    } else {
+      await onUpdateItem?.({
+        summary: editSummaryText,
+        highlights: editHighlights,
+        actionItems: editActionItems,
+        topics: editTopics,
+      });
+    }
+    setIsEditingSummary(false);
+    setSummarySavedNotification(true);
+    setTimeout(() => setSummarySavedNotification(false), 2500);
+  };
+
+  // Count occurrences of a speaker for quick rename modal
+  const speakerOccurrencesCount = useMemo(() => {
+    if (!quickRenameSpeaker) return 0;
+    return item.segments.filter((s) => s.speaker === quickRenameSpeaker).length;
+  }, [quickRenameSpeaker, item.segments]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-slate-50/50 dark:bg-slate-950">
@@ -171,6 +291,17 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
         {/* Toolbar Controls */}
         <div className="flex items-center space-x-2 flex-wrap">
+          {/* Find & Replace Button */}
+          <button
+            type="button"
+            onClick={() => setIsFindReplaceOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition-all cursor-pointer"
+            title="Corriger un nom, un mot ou une faute dans tout le document"
+          >
+            <Replace className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Rechercher & Remplacer</span>
+          </button>
+
           {/* AI Enhance / Summary Button (visible on summary tab or when needed) */}
           {currentTab === "summary" && (
             <button
@@ -190,11 +321,15 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           )}
 
           {/* View mode toggle: Split vs Original vs Translation (on transcript tab if translations exist) */}
-          {currentTab === "transcript" && (
-            item.segments.some((s) => s.translation && s.translation.trim().length > 0) ? (
+          {currentTab === "transcript" &&
+            (item.segments.some(
+              (s) => s.translation && s.translation.trim().length > 0
+            ) ? (
               <div className="flex items-center rounded-xl p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium">
                 <button
-                  onClick={() => onUpdateSettings({ translationViewMode: "split" })}
+                  onClick={() =>
+                    onUpdateSettings({ translationViewMode: "split" })
+                  }
                   className={`px-2.5 py-1.5 rounded-lg transition-all ${
                     settings.translationViewMode === "split"
                       ? "bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300 font-semibold"
@@ -233,8 +368,7 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                 <Languages className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Langue : {item.detectedLanguage || "Originale"}</span>
               </div>
-            )
-          )}
+            ))}
 
           {/* Export Button */}
           <button
@@ -294,9 +428,9 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
         {/* Tab contextual description */}
         <div className="hidden md:flex items-center text-xs text-slate-400">
           {currentTab === "summary" ? (
-            <span>Vue synthèse exécutive, points clés & actions</span>
+            <span>Vue synthèse exécutive, points clés & actions (modifiable)</span>
           ) : (
-            <span>Lecteur audio synchronisé au bas de l'écran</span>
+            <span>Double-cliquez sur un texte ou un locuteur pour modifier</span>
           )}
         </div>
       </div>
@@ -324,6 +458,14 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               detectedLanguage={item.detectedLanguage}
             />
 
+            {/* Notification alert on save */}
+            {summarySavedNotification && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center space-x-2 animate-in fade-in duration-150">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>Modifications de la synthèse enregistrées avec succès !</span>
+              </div>
+            )}
+
             {/* Executive Summary Card or Empty State */}
             {item.summary ? (
               <div className="rounded-2xl border border-indigo-100 dark:border-indigo-900/50 bg-white dark:bg-slate-900 shadow-sm p-5 sm:p-6 space-y-5 transition-all">
@@ -336,7 +478,9 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                       <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                         <span>
                           {activeSummaryView === "translated"
-                            ? `Synthèse Traduite (${(item.translatedSummaryLanguage || "Traduction").toUpperCase()})`
+                            ? `Synthèse Traduite (${(
+                                item.translatedSummaryLanguage || "Traduction"
+                              ).toUpperCase()})`
                             : "Synthèse Exécutive & Points Clés"}
                         </span>
                         <span className="text-[11px] font-normal px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
@@ -351,84 +495,333 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         {activeSummaryView === "translated"
-                          ? `Traduit automatiquement en ${(item.translatedSummaryLanguage || "").toUpperCase()}`
-                          : `Langue source : ${item.detectedLanguage || item.sourceLanguage || "Détectée"}`}
+                          ? `Traduit automatiquement en ${(
+                              item.translatedSummaryLanguage || ""
+                            ).toUpperCase()}`
+                          : `Langue source : ${
+                              item.detectedLanguage ||
+                              item.sourceLanguage ||
+                              "Détectée"
+                            }`}
                       </p>
                     </div>
                   </div>
 
-                  {/* Single copy button: copies summary + highlights + actions */}
-                  <button
-                    type="button"
-                    onClick={handleCopySummaryOnly}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-xs transition-all active:scale-95 cursor-pointer"
-                    title="Copier le résumé, les points essentiels et les actions à retenir"
-                  >
-                    {summaryCopied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copié !</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Copier la synthèse</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                  {/* Actions: Edit & Copy */}
+                  <div className="flex items-center space-x-2">
+                    {/* Toggle Edit Mode button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isEditingSummary) {
+                          handleSaveSummary();
+                        } else {
+                          handleStartEditSummary();
+                        }
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition-all cursor-pointer"
+                      title={
+                        isEditingSummary
+                          ? "Enregistrer les modifications"
+                          : "Modifier le texte ou les points de la synthèse"
+                      }
+                    >
+                      {isEditingSummary ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                            Enregistrer
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Edit2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>Modifier la synthèse</span>
+                        </>
+                      )}
+                    </button>
 
-                {/* Synthesis Text Body */}
-                <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-line bg-slate-50/60 dark:bg-slate-950/40 p-4 sm:p-5 rounded-xl border border-slate-100 dark:border-slate-800">
-                  {activeSummaryView === "translated" && item.translatedSummary
-                    ? item.translatedSummary
-                    : item.summary}
-                </div>
-
-                {/* Highlights */}
-                {item.highlights && item.highlights.length > 0 && (
-                  <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2.5">
-                    <span className="font-bold text-xs uppercase tracking-wider text-indigo-900 dark:text-indigo-300 block">
-                      Points essentiels :
-                    </span>
-                    <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-                      {item.highlights.map((h, i) => (
-                        <li key={i} className="leading-relaxed">{h}</li>
-                      ))}
-                    </ul>
+                    {/* Single copy button: copies summary + highlights + actions */}
+                    <button
+                      type="button"
+                      onClick={handleCopySummaryOnly}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-all active:scale-95 cursor-pointer"
+                      title="Copier le résumé, les points essentiels et les actions à retenir"
+                    >
+                      {summaryCopied ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                            Copié !
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>Copier la synthèse</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                )}
+                </div>
 
-                {/* Action items */}
-                {item.actionItems && item.actionItems.length > 0 && (
-                  <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2.5">
-                    <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 dark:text-emerald-300 block">
-                      Actions à retenir :
-                    </span>
+                {/* Synthesis Body: View Mode or Inline Edit Mode */}
+                {isEditingSummary ? (
+                  <div className="space-y-5 pt-1">
+                    {/* Editable Summary Textarea */}
                     <div className="space-y-1.5">
-                      {item.actionItems.map((a, i) => (
-                        <div key={i} className="flex items-start space-x-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">{a}</span>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Texte de la synthèse :
+                        </label>
+                        <span className="text-[11px] text-slate-400">
+                          Corrigez les noms, le texte ou les termes erronés
+                        </span>
+                      </div>
+                      <textarea
+                        value={editSummaryText}
+                        onChange={(e) => setEditSummaryText(e.target.value)}
+                        rows={7}
+                        className="w-full text-sm sm:text-base leading-relaxed p-4 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-hidden font-normal"
+                        placeholder="Texte de la synthèse..."
+                      />
+                    </div>
+
+                    {/* Editable Highlights */}
+                    <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/20 dark:bg-indigo-950/20 space-y-3">
+                      <span className="font-bold text-xs uppercase tracking-wider text-indigo-900 dark:text-indigo-300 block">
+                        Points essentiels :
+                      </span>
+                      <div className="space-y-2">
+                        {editHighlights.map((h, i) => (
+                          <div key={i} className="flex items-center space-x-2">
+                            <span className="text-indigo-500 font-bold text-sm">
+                              •
+                            </span>
+                            <input
+                              type="text"
+                              value={h}
+                              onChange={(e) => {
+                                const next = [...editHighlights];
+                                next[i] = e.target.value;
+                                setEditHighlights(next);
+                              }}
+                              className="flex-1 text-xs sm:text-sm px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-1 focus:ring-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditHighlights(
+                                  editHighlights.filter((_, idx) => idx !== i)
+                                )
+                              }
+                              className="p-1.5 text-slate-400 hover:text-red-600 rounded-md"
+                              title="Supprimer ce point"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex items-center space-x-2 pt-1">
+                          <input
+                            type="text"
+                            value={newHighlightInput}
+                            onChange={(e) =>
+                              setNewHighlightInput(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (
+                                e.key === "Enter" &&
+                                newHighlightInput.trim()
+                              ) {
+                                e.preventDefault();
+                                setEditHighlights([
+                                  ...editHighlights,
+                                  newHighlightInput.trim(),
+                                ]);
+                                setNewHighlightInput("");
+                              }
+                            }}
+                            placeholder="+ Ajouter un point essentiel (Appuyez sur Entrée)..."
+                            className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-800 bg-white/70 dark:bg-slate-900/70 text-slate-900 dark:text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (newHighlightInput.trim()) {
+                                setEditHighlights([
+                                  ...editHighlights,
+                                  newHighlightInput.trim(),
+                                ]);
+                                setNewHighlightInput("");
+                              }
+                            }}
+                            disabled={!newHighlightInput.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-xs font-semibold disabled:opacity-40"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      ))}
+                      </div>
+                    </div>
+
+                    {/* Editable Action items */}
+                    <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/20 dark:bg-emerald-950/20 space-y-3">
+                      <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 dark:text-emerald-300 block">
+                        Actions à retenir :
+                      </span>
+                      <div className="space-y-2">
+                        {editActionItems.map((a, i) => (
+                          <div key={i} className="flex items-center space-x-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <input
+                              type="text"
+                              value={a}
+                              onChange={(e) => {
+                                const next = [...editActionItems];
+                                next[i] = e.target.value;
+                                setEditActionItems(next);
+                              }}
+                              className="flex-1 text-xs sm:text-sm px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditActionItems(
+                                  editActionItems.filter((_, idx) => idx !== i)
+                                )
+                              }
+                              className="p-1.5 text-slate-400 hover:text-red-600 rounded-md"
+                              title="Supprimer cette action"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex items-center space-x-2 pt-1">
+                          <input
+                            type="text"
+                            value={newActionInput}
+                            onChange={(e) => setNewActionInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newActionInput.trim()) {
+                                e.preventDefault();
+                                setEditActionItems([
+                                  ...editActionItems,
+                                  newActionInput.trim(),
+                                ]);
+                                setNewActionInput("");
+                              }
+                            }}
+                            placeholder="+ Ajouter une action à retenir (Appuyez sur Entrée)..."
+                            className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-dashed border-emerald-300 dark:border-emerald-800 bg-white/70 dark:bg-slate-900/70 text-slate-900 dark:text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (newActionInput.trim()) {
+                                setEditActionItems([
+                                  ...editActionItems,
+                                  newActionInput.trim(),
+                                ]);
+                                setNewActionInput("");
+                              }
+                            }}
+                            disabled={!newActionInput.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-semibold disabled:opacity-40"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom Save & Cancel Buttons */}
+                    <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingSummary(false)}
+                        className="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveSummary}
+                        className="flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Enregistrer les modifications</span>
+                      </button>
                     </div>
                   </div>
-                )}
+                ) : (
+                  /* Standard Synthesis View */
+                  <>
+                    <div
+                      onDoubleClick={handleStartEditSummary}
+                      title="Double-cliquez pour modifier le texte de la synthèse"
+                      className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-line bg-slate-50/60 dark:bg-slate-950/40 p-4 sm:p-5 rounded-xl border border-slate-100 dark:border-slate-800 cursor-text select-text"
+                    >
+                      {activeSummaryView === "translated" &&
+                      item.translatedSummary
+                        ? item.translatedSummary
+                        : item.summary}
+                    </div>
 
-                {/* Topics */}
-                {item.topics && item.topics.length > 0 && (
-                  <div className="pt-2 flex items-center space-x-2 flex-wrap">
-                    <span className="text-xs font-semibold text-slate-500">Thèmes clés :</span>
-                    {item.topics.map((t, i) => (
-                      <span
-                        key={i}
-                        className="px-2.5 py-0.5 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium"
-                      >
-                        #{t}
-                      </span>
-                    ))}
-                  </div>
+                    {/* Highlights */}
+                    {item.highlights && item.highlights.length > 0 && (
+                      <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2.5">
+                        <span className="font-bold text-xs uppercase tracking-wider text-indigo-900 dark:text-indigo-300 block">
+                          Points essentiels :
+                        </span>
+                        <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+                          {item.highlights.map((h, i) => (
+                            <li key={i} className="leading-relaxed">
+                              {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Action items */}
+                    {item.actionItems && item.actionItems.length > 0 && (
+                      <div className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2.5">
+                        <span className="font-bold text-xs uppercase tracking-wider text-emerald-900 dark:text-emerald-300 block">
+                          Actions à retenir :
+                        </span>
+                        <div className="space-y-1.5">
+                          {item.actionItems.map((a, i) => (
+                            <div
+                              key={i}
+                              className="flex items-start space-x-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300"
+                            >
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                              <span className="leading-relaxed">{a}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Topics */}
+                    {item.topics && item.topics.length > 0 && (
+                      <div className="pt-2 flex items-center space-x-2 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-500">
+                          Thèmes clés :
+                        </span>
+                        {item.topics.map((t, i) => (
+                          <span
+                            key={i}
+                            className="px-2.5 py-0.5 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium"
+                          >
+                            #{t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ) : (
@@ -441,231 +834,345 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     Aucune synthèse générée pour cet enregistrement
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                    Choisissez votre format ci-dessus (Détaillé, Léger, Points clés, Compte-rendu) et lancez l'analyse IA.
+                    Choisissez votre format ci-dessus (Détaillé, Léger, Points
+                    clés, Compte-rendu) et lancez l'analyse IA.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => onEnhanceWithAI(item.summaryFormat || "detailed")}
+                  onClick={() =>
+                    onEnhanceWithAI(item.summaryFormat || "detailed")
+                  }
                   disabled={isEnhancing}
                   className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{isEnhancing ? "Analyse en cours..." : "Générer la synthèse maintenant"}</span>
+                  <span>
+                    {isEnhancing
+                      ? "Analyse en cours..."
+                      : "Générer la synthèse maintenant"}
+                  </span>
                 </button>
               </div>
             )}
           </div>
         ) : (
-          /* TAB 2: Transcription complète */
+          /* TAB 2: Transcription complète (Partie inférieure) */
           <div className="space-y-3 max-w-5xl mx-auto">
-          {segments.length === 0 ? (
-            <div className="p-12 text-center text-slate-500 text-sm">
-              Aucun segment trouvé.
-            </div>
-          ) : (
-            segments.map((segment) => {
-              const isActive = activeSegment?.id === segment.id;
-              const isEditing = editingSegmentId === segment.id;
+            {segments.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-sm">
+                Aucun segment trouvé.
+              </div>
+            ) : (
+              segments.map((segment) => {
+                const isActive = activeSegment?.id === segment.id;
+                const isEditing = editingSegmentId === segment.id;
 
-              return (
-                <div
-                  key={segment.id}
-                  ref={isActive ? activeSegmentRef : null}
-                  onClick={() => onSeek(segment.start)}
-                  className={`rounded-2xl border p-4 transition-all cursor-pointer relative ${
-                    isActive
-                      ? "border-indigo-500/80 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-sm ring-1 ring-indigo-500/30"
-                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-                  }`}
-                >
-                  {/* Segment Header */}
-                  <div className="flex items-center justify-between pb-2 text-xs">
-                    <div className="flex items-center space-x-2.5">
-                      {/* Timestamp button */}
-                      {settings.showTimestamps && (
+                return (
+                  <div
+                    key={segment.id}
+                    ref={isActive ? activeSegmentRef : null}
+                    onClick={() => {
+                      if (!isEditing) {
+                        onSeek(segment.start);
+                      }
+                    }}
+                    onDoubleClick={() => {
+                      if (!isEditing) {
+                        handleStartEditSegment(segment);
+                      }
+                    }}
+                    className={`rounded-2xl border p-4 transition-all relative ${
+                      isActive
+                        ? "border-indigo-500/80 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-sm ring-1 ring-indigo-500/30"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                    }`}
+                  >
+                    {/* Segment Header */}
+                    <div className="flex items-center justify-between pb-2 text-xs">
+                      <div className="flex items-center space-x-2.5">
+                        {/* Timestamp button */}
+                        {settings.showTimestamps && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSeek(segment.start);
+                            }}
+                            className={`flex items-center space-x-1 px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold transition-colors ${
+                              isActive
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600"
+                            }`}
+                            title="Cliquer pour écouter ce passage"
+                          >
+                            <Clock className="w-3 h-3" />
+                            <span>
+                              {formatTime(segment.start)} -{" "}
+                              {formatTime(segment.end)}
+                            </span>
+                          </button>
+                        )}
+
+                        {/* Speaker label with quick rename everywhere */}
+                        {settings.showSpeakers && (
+                          <div className="flex items-center space-x-1 group">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickRenameSpeaker(
+                                  segment.speaker || "Intervenant"
+                                );
+                              }}
+                              className="flex items-center space-x-1 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold text-xs px-2 py-0.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors"
+                              title="Cliquer pour renommer cet intervenant sur l'ensemble de ses interventions"
+                            >
+                              <User className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>{segment.speaker || "Intervenant"}</span>
+                              <Edit2 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 text-slate-400 ml-1" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Quick actions: Copy & Edit */}
+                      <div className="flex items-center space-x-1">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSeek(segment.start);
+                            handleCopyText(
+                              `${segment.text}${
+                                segment.translation
+                                  ? ` (${segment.translation})`
+                                  : ""
+                              }`,
+                              segment.id
+                            );
                           }}
-                          className={`flex items-center space-x-1 px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold transition-colors ${
-                            isActive
-                              ? "bg-indigo-600 text-white shadow-xs"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600"
-                          }`}
-                          title="Cliquer pour écouter ce passage"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Copier ce passage"
                         >
-                          <Clock className="w-3 h-3" />
-                          <span>
-                            {formatTime(segment.start)} - {formatTime(segment.end)}
-                          </span>
+                          {copiedId === segment.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
                         </button>
-                      )}
 
-                      {/* Speaker label */}
-                      {settings.showSpeakers && (
-                        <div className="flex items-center space-x-1 text-slate-600 dark:text-slate-300 font-semibold text-xs">
-                          <User className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>{segment.speaker || "Intervenant"}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Quick actions: Copy & Edit */}
-                    <div className="flex items-center space-x-1 opacity-60 hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCopyText(
-                            `${segment.text}${
-                              segment.translation ? ` (${segment.translation})` : ""
-                            }`,
-                            segment.id
-                          );
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        title="Copier ce passage"
-                      >
-                        {copiedId === segment.id ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingSegmentId(
-                            isEditing ? null : segment.id
-                          );
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        title="Éditer le texte ou le locuteur"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Segment Body (Original & Translation) */}
-                  {isEditing ? (
-                    <div
-                      className="space-y-3 pt-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex space-x-2">
-                        <input
-                          type="text"
-                          value={segment.speaker}
-                          onChange={(e) =>
-                            onUpdateSegment(segment.id, {
-                              speaker: e.target.value,
-                            })
-                          }
-                          className="w-40 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          placeholder="Nom de l'interlocuteur"
-                        />
-                      </div>
-                      <textarea
-                        value={segment.text}
-                        onChange={(e) =>
-                          onUpdateSegment(segment.id, {
-                            text: e.target.value,
-                          })
-                        }
-                        rows={2}
-                        className="w-full text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-1 focus:ring-indigo-500"
-                        placeholder="Texte original..."
-                      />
-                      {segment.translation !== undefined && (
-                        <textarea
-                          value={segment.translation}
-                          onChange={(e) =>
-                            onUpdateSegment(segment.id, {
-                              translation: e.target.value,
-                            })
-                          }
-                          rows={2}
-                          className="w-full text-sm p-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-200 focus:ring-1 focus:ring-indigo-500"
-                          placeholder="Traduction..."
-                        />
-                      )}
-                      <div className="flex justify-end">
                         <button
                           type="button"
-                          onClick={() => setEditingSegmentId(null)}
-                          className="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isEditing) {
+                              setEditingSegmentId(null);
+                            } else {
+                              handleStartEditSegment(segment);
+                            }
+                          }}
+                          className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+                            isEditing
+                              ? "bg-indigo-600 text-white"
+                              : "text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                          title="Modifier le texte ou l'intervenant"
                         >
-                          Enregistrer
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">
+                            {isEditing ? "Fermer" : "Modifier"}
+                          </span>
                         </button>
                       </div>
                     </div>
-                  ) : settings.translationViewMode === "split" &&
-                    segment.translation ? (
-                    /* Side-by-Side Dual View */
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                      {/* Original */}
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                          Original ({item.detectedLanguage || "Audio"})
-                        </span>
+
+                    {/* Segment Body (Original & Translation) */}
+                    {isEditing ? (
+                      /* Inline Segment Editor */
+                      <div
+                        className="space-y-3 pt-2 bg-slate-50/80 dark:bg-slate-800/40 p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Speaker editing with global rename option */}
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+                              <User className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>Intervenant :</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={editSegmentSpeaker}
+                              onChange={(e) =>
+                                setEditSegmentSpeaker(e.target.value)
+                              }
+                              className="w-48 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-1 focus:ring-indigo-500"
+                              placeholder="Nom de l'intervenant"
+                            />
+                          </div>
+
+                          {initialSegmentSpeaker && (
+                            <label className="flex items-center space-x-2 text-xs text-indigo-700 dark:text-indigo-300 cursor-pointer pt-0.5 select-none">
+                              <input
+                                type="checkbox"
+                                checked={applySpeakerToAll}
+                                onChange={(e) =>
+                                  setApplySpeakerToAll(e.target.checked)
+                                }
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>
+                                Appliquer ce nom à toutes les interventions de "
+                                {initialSegmentSpeaker}" (
+                                {
+                                  item.segments.filter(
+                                    (s) => s.speaker === initialSegmentSpeaker
+                                  ).length
+                                }{" "}
+                                segments)
+                              </span>
+                            </label>
+                          )}
+                        </div>
+
+                        {/* Text editing */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Texte transcrit :
+                          </label>
+                          <textarea
+                            value={editSegmentText}
+                            onChange={(e) =>
+                              setEditSegmentText(e.target.value)
+                            }
+                            rows={3}
+                            className="w-full text-sm p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed outline-hidden"
+                            placeholder="Corriger le texte transcrit..."
+                          />
+                        </div>
+
+                        {/* Translation editing if present */}
+                        {segment.translation !== undefined && (
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 flex items-center space-x-1">
+                              <Languages className="w-3.5 h-3.5" />
+                              <span>Traduction :</span>
+                            </label>
+                            <textarea
+                              value={editSegmentTranslation}
+                              onChange={(e) =>
+                                setEditSegmentTranslation(e.target.value)
+                              }
+                              rows={2}
+                              className="w-full text-sm p-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-950 dark:text-indigo-200 focus:ring-2 focus:ring-indigo-500/20 leading-relaxed outline-hidden"
+                              placeholder="Corriger la traduction..."
+                            />
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div className="flex items-center justify-end space-x-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSegmentId(null)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveSegment(segment.id)}
+                            className="flex items-center space-x-1 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Enregistrer</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : settings.translationViewMode === "split" &&
+                      segment.translation ? (
+                      /* Side-by-Side Dual View */
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                        {/* Original */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            Original ({item.detectedLanguage || "Audio"})
+                          </span>
+                          <p
+                            className={`${getFontSizeClass()} text-slate-900 dark:text-slate-100 font-normal`}
+                          >
+                            {segment.text}
+                          </p>
+                        </div>
+
+                        {/* Translation */}
+                        <div className="space-y-1 md:border-l md:border-slate-200 dark:md:border-slate-800 md:pl-4">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center space-x-1">
+                            <Languages className="w-3 h-3" />
+                            <span>Traduction</span>
+                          </span>
+                          <p
+                            className={`${getFontSizeClass()} text-indigo-950 dark:text-indigo-200 font-normal`}
+                          >
+                            {segment.translation}
+                          </p>
+                        </div>
+                      </div>
+                    ) : settings.translationViewMode === "translated" &&
+                      segment.translation ? (
+                      /* Translated Only */
+                      <p
+                        className={`${getFontSizeClass()} text-indigo-950 dark:text-indigo-200 font-normal pt-1`}
+                      >
+                        {segment.translation}
+                      </p>
+                    ) : (
+                      /* Original Only or Default */
+                      <div className="space-y-1.5 pt-1">
                         <p
                           className={`${getFontSizeClass()} text-slate-900 dark:text-slate-100 font-normal`}
                         >
                           {segment.text}
                         </p>
+                        {segment.translation && (
+                          <p
+                            className={`text-xs text-indigo-700 dark:text-indigo-300 italic pt-0.5 border-t border-indigo-100 dark:border-indigo-900/40`}
+                          >
+                            ↳ {segment.translation}
+                          </p>
+                        )}
                       </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
 
-                      {/* Translation */}
-                      <div className="space-y-1 md:border-l md:border-slate-200 dark:md:border-slate-800 md:pl-4">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center space-x-1">
-                          <Languages className="w-3 h-3" />
-                          <span>Traduction</span>
-                        </span>
-                        <p
-                          className={`${getFontSizeClass()} text-indigo-950 dark:text-indigo-200 font-normal`}
-                        >
-                          {segment.translation}
-                        </p>
-                      </div>
-                    </div>
-                  ) : settings.translationViewMode === "translated" &&
-                    segment.translation ? (
-                    /* Translated Only */
-                    <p
-                      className={`${getFontSizeClass()} text-indigo-950 dark:text-indigo-200 font-normal pt-1`}
-                    >
-                      {segment.translation}
-                    </p>
-                  ) : (
-                    /* Original Only or Default */
-                    <div className="space-y-1.5 pt-1">
-                      <p
-                        className={`${getFontSizeClass()} text-slate-900 dark:text-slate-100 font-normal`}
-                      >
-                        {segment.text}
-                      </p>
-                      {segment.translation && (
-                        <p
-                          className={`text-xs text-indigo-700 dark:text-indigo-300 italic pt-0.5 border-t border-indigo-100 dark:border-indigo-900/40`}
-                        >
-                          ↳ {segment.translation}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+      {/* Find & Replace Modal */}
+      <FindAndReplaceModal
+        isOpen={isFindReplaceOpen}
+        onClose={() => setIsFindReplaceOpen(false)}
+        item={item}
+        onApply={async (updated) => {
+          await onUpdateItem?.(updated);
+        }}
+      />
+
+      {/* Quick Rename Speaker Modal */}
+      {quickRenameSpeaker && (
+        <QuickRenameSpeakerModal
+          isOpen={Boolean(quickRenameSpeaker)}
+          onClose={() => setQuickRenameSpeaker(null)}
+          currentSpeaker={quickRenameSpeaker}
+          occurrencesCount={speakerOccurrencesCount}
+          onRename={async (oldName, newName) => {
+            await onRenameSpeakerEverywhere?.(oldName, newName);
+          }}
+        />
       )}
     </div>
-  </div>
-);
+  );
 };
