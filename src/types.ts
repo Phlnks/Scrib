@@ -38,6 +38,8 @@ export interface AudioFileItem {
   highlights?: string[];
   actionItems?: string[];
   topics?: string[];
+  isTranscriptImport?: boolean;
+  transcriptFormat?: string;
 }
 
 export interface UserSettings {

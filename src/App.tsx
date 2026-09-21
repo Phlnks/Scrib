@@ -7,6 +7,7 @@ import { TranscriptViewer } from "./components/TranscriptViewer";
 import { AudioPlayer } from "./components/AudioPlayer";
 import { ExportModal } from "./components/ExportModal";
 import { AudioFileItem, SummaryFormat, TranscriptSegment, UserSettings } from "./types";
+import { ParsedTranscriptResult } from "./utils/transcriptParser";
 import {
   getAllAudioFileItems,
   getAudioBlob,
@@ -321,6 +322,111 @@ export default function App() {
     }
   };
 
+  // Direct transcript file import workflow (SRT, VTT, JSON, DOCX, TXT, CSV...)
+  const handleImportTranscript = async (
+    file: File,
+    parsed: ParsedTranscriptResult,
+    options: {
+      summaryFormat: SummaryFormat;
+      language: string;
+    }
+  ) => {
+    setIsProcessing(true);
+    setProgressPercent(15);
+    setProgressMessage("Lecture et structuration des segments du transcript...");
+
+    const newId = "trans_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+
+    const initialItem: AudioFileItem = {
+      id: newId,
+      name: parsed.fileName,
+      fileSize: file.size,
+      fileType: file.type || "text/plain",
+      duration: parsed.estimatedDuration,
+      createdAt: new Date().toISOString(),
+      status: "processing",
+      progress: 30,
+      progressMessage: "Génération de la synthèse détaillée et des actions à retenir...",
+      segments: parsed.segments,
+      fullText: parsed.fullText,
+      sourceLanguage: options.language,
+      targetLanguage: "none",
+      isTranscriptImport: true,
+      transcriptFormat: parsed.formatDetected,
+    };
+
+    setFiles((prev) => [initialItem, ...prev]);
+    setSelectedFileId(newId);
+    setActiveAudioBlob(null);
+
+    try {
+      setProgressPercent(50);
+      setProgressMessage("Génération du résumé exécutif, des points essentiels et des actions...");
+
+      const langToUse = options.language === "auto" ? "Français" : options.language;
+      const formatToUse = options.summaryFormat || "detailed";
+
+      const enhanceRes = await fetch("/api/enhance-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullText: parsed.fullText,
+          detectedLanguage: langToUse,
+          duration: parsed.estimatedDuration,
+          format: formatToUse,
+        }),
+      });
+
+      if (!enhanceRes.ok) {
+        const errData = await enhanceRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Échec lors de la génération de la synthèse IA");
+      }
+
+      const enhanceData = await enhanceRes.json();
+      const summary = enhanceData.analysis?.summary || "";
+      const highlights = enhanceData.analysis?.highlights || [];
+      const actionItems = enhanceData.analysis?.actionItems || [];
+      const topics = enhanceData.analysis?.topics || [];
+
+      const completedItem: AudioFileItem = {
+        ...initialItem,
+        status: "completed",
+        progress: 100,
+        progressMessage: "Synthèse détaillée et transcription prêtes !",
+        summary,
+        summaryFormat: formatToUse,
+        summaryLanguage: options.language === "auto" ? "fr" : options.language,
+        highlights,
+        actionItems,
+        topics,
+        detectedLanguage: langToUse,
+      };
+
+      await saveAudioFileItem(completedItem);
+
+      setFiles((prev) =>
+        prev.map((f) => (f.id === newId ? completedItem : f))
+      );
+      setSelectedFileId(newId);
+      setActiveView("viewer");
+      setViewerTab("summary");
+    } catch (err: any) {
+      console.error("Transcript import enhance error:", err);
+      const errorItem: AudioFileItem = {
+        ...initialItem,
+        status: "error",
+        error: err.message || "Échec de l'analyse",
+        progressMessage: `Erreur : ${err.message}`,
+      };
+      setFiles((prev) =>
+        prev.map((f) => (f.id === newId ? errorItem : f))
+      );
+      alert(`Erreur lors de l'analyse du transcript : ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Re-generate or update AI Summary & Analysis with selectable format
   const handleEnhanceWithAI = async (format: SummaryFormat = "detailed") => {
     const current = files.find((f) => f.id === selectedFileId);
@@ -565,6 +671,7 @@ export default function App() {
             <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-8 flex items-center justify-center">
               <AudioUploader
                 onStartTranscription={handleStartTranscription}
+                onImportTranscript={handleImportTranscript}
                 isProcessing={isProcessing}
                 progressMessage={progressMessage}
                 progressPercent={progressPercent}
@@ -596,8 +703,14 @@ export default function App() {
                 onTabChange={setViewerTab}
               />
 
-              {/* Synchronized Audio Player Bar - visible only on transcript tab */}
-              <div className={viewerTab === "transcript" ? "shrink-0 block" : "hidden"}>
+              {/* Synchronized Audio Player Bar - visible only on transcript tab when audio file is attached */}
+              <div
+                className={
+                  viewerTab === "transcript" && !selectedItem.isTranscriptImport
+                    ? "shrink-0 block"
+                    : "hidden"
+                }
+              >
                 <AudioPlayer
                   audioBlob={activeAudioBlob}
                   currentTime={currentTime}

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   FileAudio,
+  FileText,
   Search,
   Trash2,
   Download,
@@ -175,27 +176,51 @@ export const FileListSidebar: React.FC<FileListSidebarProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <h3
-                        className="text-xs font-semibold text-slate-900 dark:text-white truncate hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                        title={`${file.name} (Double-cliquer ou bouton pour renommer)`}
-                        onDoubleClick={(e) => handleStartRename(file, e)}
-                      >
-                        {file.name}
-                      </h3>
+                      <div className="flex items-center space-x-1.5 min-w-0">
+                        {file.isTranscriptImport ? (
+                          <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        ) : (
+                          <FileAudio className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        )}
+                        <h3
+                          className="text-xs font-semibold text-slate-900 dark:text-white truncate hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                          title={`${file.name} (Double-cliquer ou bouton pour renommer)`}
+                          onDoubleClick={(e) => handleStartRename(file, e)}
+                        >
+                          {file.name}
+                        </h3>
+                      </div>
                     )}
 
                     {/* Metadata line */}
                     <div className="mt-1 flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400">
-                      <span className="flex items-center">
-                        <Clock className="w-3 h-3 mr-0.5" />
-                        {formatTime(file.duration)}
-                      </span>
-                      <span>•</span>
-                      <span>{formatBytes(file.fileSize)}</span>
+                      {file.isTranscriptImport ? (
+                        <>
+                          <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                            {file.segments.length} segments
+                          </span>
+                          <span>•</span>
+                          <span>{formatBytes(file.fileSize)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex items-center">
+                            <Clock className="w-3 h-3 mr-0.5" />
+                            {formatTime(file.duration)}
+                          </span>
+                          <span>•</span>
+                          <span>{formatBytes(file.fileSize)}</span>
+                        </>
+                      )}
                     </div>
 
                     {/* Status & tags */}
                     <div className="mt-2 flex items-center space-x-1.5 flex-wrap">
+                      {file.isTranscriptImport && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
+                          Transcript
+                        </span>
+                      )}
                       {file.status === "completed" && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
                           <CheckCircle2 className="w-3 h-3 mr-1" />

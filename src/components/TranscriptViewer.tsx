@@ -301,11 +301,30 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
               {item.detectedLanguage || item.sourceLanguage || "Audio"}
             </span>
+            {item.isTranscriptImport && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                {item.transcriptFormat || "Transcript importé"}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center space-x-2">
-            <span>{formatTime(item.duration)}</span>
-            <span>•</span>
-            <span>{item.segments.length} segments transcrits</span>
+            {item.isTranscriptImport ? (
+              <>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                  Document importé
+                </span>
+                <span>•</span>
+                <span>{item.segments.length} segments extraits</span>
+                <span>•</span>
+                <span>{item.fullText.split(/\s+/).filter(Boolean).length} mots</span>
+              </>
+            ) : (
+              <>
+                <span>{formatTime(item.duration)}</span>
+                <span>•</span>
+                <span>{item.segments.length} segments transcrits</span>
+              </>
+            )}
           </p>
         </div>
 
@@ -438,7 +457,7 @@ export const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             }`}
           >
             <AlignLeft className="w-4 h-4" />
-            <span>Transcription & Lecteur audio</span>
+            <span>{item.isTranscriptImport ? "Transcription & Segments" : "Transcription & Lecteur audio"}</span>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {item.segments.length}
             </span>
