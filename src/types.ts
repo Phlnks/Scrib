@@ -9,6 +9,13 @@ export interface TranscriptSegment {
 
 export type SummaryFormat = "concise" | "detailed" | "bullet_points" | "meeting_minutes";
 
+export interface FolderItem {
+  id: string;
+  name: string;
+  color?: string; // e.g. "indigo" | "emerald" | "amber" | "rose" | "purple" | "blue"
+  createdAt: string;
+}
+
 export interface AudioFileItem {
   id: string;
   name: string;
@@ -16,6 +23,7 @@ export interface AudioFileItem {
   fileType: string;
   duration: number; // in seconds
   createdAt: string;
+  folderId?: string; // Optional folder / category ID
   status: "idle" | "chunking" | "processing" | "completed" | "error";
   progress: number; // 0 to 100
   progressMessage?: string;

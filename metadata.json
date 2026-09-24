@@ -1,6 +1,6 @@
 {
   "name": "Scrib",
-  "description": "Voice-to-text audio transcription and direct transcript file import (SRT, VTT, JSON, DOCX, TXT, CSV) with AI chunking, in-depth executive summary generation with key highlights and action items, bilingual translation, audio playback sync, and PDF/TXT export.",
+  "description": "Voice-to-text audio transcription and direct transcript file import (SRT, VTT, JSON, DOCX, TXT, CSV) with automated chunking, in-depth executive summary generation with key highlights and action items, bilingual translation, audio playback sync, and PDF/TXT export.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

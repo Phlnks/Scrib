@@ -1,4 +1,4 @@
-import { AudioFileItem, UserSettings } from "../types";
+import { AudioFileItem, FolderItem, UserSettings } from "../types";
 
 const DB_NAME = "AudioTranscribeDB";
 const DB_VERSION = 1;
@@ -118,5 +118,49 @@ export function saveUserSettings(settings: UserSettings): void {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   } catch (e) {
     console.error("Failed to save user settings:", e);
+  }
+}
+
+// Folders / Categories management in localStorage
+const FOLDERS_KEY = "scrib_folders_v1";
+const COLLAPSED_FOLDERS_KEY = "scrib_collapsed_folders_v1";
+
+export function loadFolders(): FolderItem[] {
+  try {
+    const saved = localStorage.getItem(FOLDERS_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error("Failed to load folders:", e);
+  }
+  return [];
+}
+
+export function saveFolders(folders: FolderItem[]): void {
+  try {
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+  } catch (e) {
+    console.error("Failed to save folders:", e);
+  }
+}
+
+export function loadCollapsedFolders(): string[] {
+  try {
+    const saved = localStorage.getItem(COLLAPSED_FOLDERS_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error("Failed to load collapsed folders:", e);
+  }
+  return [];
+}
+
+export function saveCollapsedFolders(collapsedIds: string[]): void {
+  try {
+    localStorage.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify(collapsedIds));
+  } catch (e) {
+    console.error("Failed to save collapsed folders:", e);
   }
 }

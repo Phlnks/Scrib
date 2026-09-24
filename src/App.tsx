@@ -6,7 +6,7 @@ import { FileListSidebar } from "./components/FileListSidebar";
 import { TranscriptViewer } from "./components/TranscriptViewer";
 import { AudioPlayer } from "./components/AudioPlayer";
 import { ExportModal } from "./components/ExportModal";
-import { AudioFileItem, SummaryFormat, TranscriptSegment, UserSettings } from "./types";
+import { AudioFileItem, FolderItem, SummaryFormat, TranscriptSegment, UserSettings } from "./types";
 import { ParsedTranscriptResult } from "./utils/transcriptParser";
 import {
   getAllAudioFileItems,
@@ -15,6 +15,8 @@ import {
   deleteAudioFileItem,
   loadUserSettings,
   saveUserSettings,
+  loadFolders,
+  saveFolders,
 } from "./utils/storage";
 import {
   chunkAudioFile,
@@ -28,6 +30,7 @@ export default function App() {
   const [settings, setSettings] = useState<UserSettings>(loadUserSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [files, setFiles] = useState<AudioFileItem[]>([]);
+  const [folders, setFolders] = useState<FolderItem[]>(() => loadFolders());
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [activeAudioBlob, setActiveAudioBlob] = useState<Blob | null>(null);
 
@@ -621,6 +624,56 @@ export default function App() {
     setFiles((prev) => prev.map((f) => (f.id === id ? updated : f)));
   };
 
+  // Folder / Category management
+  const handleCreateFolder = (name: string, color: string = "indigo") => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newFolder: FolderItem = {
+      id: "fld_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      name: trimmed,
+      color,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [...folders, newFolder];
+    setFolders(updated);
+    saveFolders(updated);
+  };
+
+  const handleRenameFolder = (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const updated = folders.map((f) => (f.id === id ? { ...f, name: trimmed } : f));
+    setFolders(updated);
+    saveFolders(updated);
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    // Keep files by moving them to root (folderId: undefined)
+    const updatedFiles = files.map((f) =>
+      f.folderId === id ? { ...f, folderId: undefined } : f
+    );
+    setFiles(updatedFiles);
+    for (const item of updatedFiles) {
+      if (files.find((orig) => orig.id === item.id)?.folderId === id) {
+        await saveAudioFileItem(item);
+      }
+    }
+    const updatedFolders = folders.filter((f) => f.id !== id);
+    setFolders(updatedFolders);
+    saveFolders(updatedFolders);
+  };
+
+  const handleMoveFileToFolder = async (fileId: string, folderId: string | null) => {
+    const current = files.find((f) => f.id === fileId);
+    if (!current) return;
+    const updated: AudioFileItem = {
+      ...current,
+      folderId: folderId ? folderId : undefined,
+    };
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? updated : f)));
+    await saveAudioFileItem(updated);
+  };
+
   const selectedItem = files.find((f) => f.id === selectedFileId);
 
   return (
@@ -650,6 +703,7 @@ export default function App() {
         {/* Sidebar file list */}
         <FileListSidebar
           files={files}
+          folders={folders}
           selectedFileId={selectedFileId}
           onSelectFile={(id) => {
             setSelectedFileId(id);
@@ -661,6 +715,10 @@ export default function App() {
             setExportItem(item);
             setIsExportOpen(true);
           }}
+          onCreateFolder={handleCreateFolder}
+          onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onMoveFileToFolder={handleMoveFileToFolder}
           isOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
